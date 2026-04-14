@@ -17,7 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class EngineCoverageTest {
     private final RuleValidator validator = new RuleValidator();
-    private final GameEngine engine = new GameEngine(new RuleValidator(), new DamageCalculator(), new StatusEffectManager(), new VictoryConditionChecker());
+    private final StatusEffectManager statusFx = new StatusEffectManager();
+    private final GameEngine engine = new GameEngine(new RuleValidator(), new DamageCalculator(), statusFx, new VictoryConditionChecker(), new AttackEffectParser(statusFx));
 
     @Test
     void validator_cubre_hand_place_attach_trainer_retreat_y_attack_paths() {

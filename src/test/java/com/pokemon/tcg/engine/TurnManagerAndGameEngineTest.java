@@ -69,7 +69,7 @@ class TurnManagerAndGameEngineTest {
 
     @Test
     void game_engine_ejecuta_ataque() {
-        GameEngine engine = new GameEngine(validator, damageCalculator, statusEffectManager, victoryChecker);
+        GameEngine engine = new GameEngine(validator, damageCalculator, statusEffectManager, victoryChecker, new com.pokemon.tcg.engine.AttackEffectParser(statusEffectManager));
         GameStateSnapshot state = state();
         state.setIsFirstTurn(false);
         state.getP1ActivePokemon().setAttacks(List.of(com.pokemon.tcg.model.game.AttackData.builder().name("Scratch").damage("30").cost(List.of("Fire")).build()));
@@ -81,7 +81,7 @@ class TurnManagerAndGameEngineTest {
 
     @Test
     void game_engine_falla_si_confusion_cancela() {
-        GameEngine engine = new GameEngine(validator, damageCalculator, statusEffectManager, victoryChecker);
+        GameEngine engine = new GameEngine(validator, damageCalculator, statusEffectManager, victoryChecker, new com.pokemon.tcg.engine.AttackEffectParser(statusEffectManager));
         GameStateSnapshot state = state();
         state.setIsFirstTurn(false);
         state.getP1ActivePokemon().setRotationCondition(com.pokemon.tcg.model.enums.RotationCondition.CONFUSED);

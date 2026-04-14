@@ -8,7 +8,6 @@ import com.pokemon.tcg.engine.model.GameStateSnapshot;
 import com.pokemon.tcg.engine.model.KnockoutResult;
 import com.pokemon.tcg.engine.model.ValidationResult;
 import com.pokemon.tcg.engine.model.VictoryResult;
-import com.pokemon.tcg.model.enums.StatusCondition;
 import com.pokemon.tcg.model.game.AttackData;
 import com.pokemon.tcg.model.game.CardData;
 import com.pokemon.tcg.model.game.EnergyAttached;
@@ -30,17 +29,20 @@ public class GameEngine {
     private final StatusEffectManager statusEffectManager;
     private final VictoryConditionChecker victoryConditionChecker;
     private final TurnManager turnManager;
+    private final AttackEffectParser attackEffectParser;
     private final Random random = new Random();
 
     /** Constructor para Spring (inyección de dependencias). */
     @Autowired
     public GameEngine(RuleValidator ruleValidator, DamageCalculator damageCalculator,
                       StatusEffectManager statusEffectManager,
-                      VictoryConditionChecker victoryConditionChecker) {
+                      VictoryConditionChecker victoryConditionChecker,
+                      AttackEffectParser attackEffectParser) {
         this.ruleValidator = ruleValidator;
         this.damageCalculator = damageCalculator;
         this.statusEffectManager = statusEffectManager;
         this.victoryConditionChecker = victoryConditionChecker;
+        this.attackEffectParser = attackEffectParser;
         this.turnManager = new TurnManager(ruleValidator, damageCalculator,
                 statusEffectManager, victoryConditionChecker);
     }
@@ -48,7 +50,8 @@ public class GameEngine {
     /** Constructor sin argumentos para tests unitarios. */
     public GameEngine() {
         this(new RuleValidator(), new DamageCalculator(),
-                new StatusEffectManager(), new VictoryConditionChecker());
+                new StatusEffectManager(), new VictoryConditionChecker(),
+                new AttackEffectParser(new StatusEffectManager()));
     }
 
     // ── Robar carta (inicio de turno) ─────────────────────────────────────
@@ -184,7 +187,7 @@ public class GameEngine {
         )));
 
         // Efectos adicionales del ataque (condiciones especiales, descarte de energías)
-        applyAttackEffects(attack, attacker, defender, state, coinFlipper, events);
+        attackEffectParser.apply(attack, attacker, defender, state, coinFlipper, events);
 
         // Verificar KO y victoria
         VictoryResult victory = checkKnockoutsAndVictory(state, events);
@@ -289,104 +292,6 @@ public class GameEngine {
         }
     }
 
-    private void applyAttackEffects(AttackData attack, PokemonInPlay attacker,
-                                     PokemonInPlay defender, GameStateSnapshot state,
-                                     com.pokemon.tcg.engine.model.CoinFlipper coinFlipper,
-                                     List<GameEvent> events) {
-        String text = attack.getText();
-        if (text == null || text.isBlank()) return;
-
-        // Condiciones directas (sin moneda)
-        if (!text.matches("(?i).*flip a coin.*")) {
-            if (text.contains("Paralyzed") || text.contains("Paralizado")) {
-                statusEffectManager.applyStatus(defender, StatusCondition.PARALYZED);
-                events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                    Map.of("pokemon", defender.getName(), "condition", "PARALYZED")));
-            }
-            if (text.contains("Poisoned") || text.contains("Envenenado")) {
-                statusEffectManager.applyStatus(defender, StatusCondition.POISONED);
-                events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                    Map.of("pokemon", defender.getName(), "condition", "POISONED")));
-            }
-            if (text.contains("Asleep") || text.contains("Dormido")) {
-                statusEffectManager.applyStatus(defender, StatusCondition.ASLEEP);
-                events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                    Map.of("pokemon", defender.getName(), "condition", "ASLEEP")));
-            }
-            if (text.contains("Burned") || text.contains("Quemado")) {
-                statusEffectManager.applyStatus(defender, StatusCondition.BURNED);
-                events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                    Map.of("pokemon", defender.getName(), "condition", "BURNED")));
-            }
-            if (text.contains("Confused") || text.contains("Confundido")) {
-                statusEffectManager.applyStatus(defender, StatusCondition.CONFUSED);
-                events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                    Map.of("pokemon", defender.getName(), "condition", "CONFUSED")));
-            }
-        }
-
-        // Descarte de energías del atacante
-        if (text.contains("Discard") && text.contains("Energy")) {
-            int count = extractDiscardCount(text);
-            List<EnergyAttached> toRemove = attacker.getAttachedEnergies().stream()
-                .limit(count).collect(Collectors.toList());
-            attacker.getAttachedEnergies().removeAll(toRemove);
-        }
-
-        // Daño a Banca del oponente
-        if (text.matches("(?i).*does?\\s+\\d+\\s+damage to.*bench.*")
-                || text.matches("(?i).*hace?\\s+\\d+\\s+de da[ñn]o a.*banca.*")) {
-            int benchDmg = extractNumberFromText(text);
-            List<PokemonInPlay> oppBench = state.getCurrentTurnPlayerId().equals(state.getPlayer1Id())
-                ? state.getP2Bench() : state.getP1Bench();
-            if (!oppBench.isEmpty() && benchDmg > 0) {
-                state.getPendingBenchDamage().add(
-                    com.pokemon.tcg.engine.model.PendingBenchDamage.builder()
-                        .damageCounters(benchDmg / 10)
-                        .targetPlayerId(state.getOpponentId())
-                        .build());
-                events.add(new GameEvent(GameEventType.BENCH_DAMAGE_PENDING,
-                    Map.of("damage", benchDmg)));
-            }
-        }
-
-        // Curación del atacante
-        if (text.matches("(?i).*heal\\s+\\d+\\s+damage.*")
-                || text.matches("(?i).*cura?\\s+\\d+\\s+puntos.*")) {
-            int healCounters = extractNumberFromText(text) / 10;
-            int current = attacker.getDamageCounters() != null ? attacker.getDamageCounters() : 0;
-            int removed = Math.min(healCounters, current);
-            attacker.setDamageCounters(current - removed);
-            events.add(new GameEvent(GameEventType.POKEMON_HEALED,
-                Map.of("pokemon", attacker.getName(), "healed", removed * 10)));
-        }
-
-        // Lanzar moneda para aplicar condición al defensor
-        if (text.matches("(?i).*flip a coin.*heads.*") || text.matches("(?i).*lanza.*moneda.*cara.*")) {
-            boolean heads = !coinFlipper.flip();
-            events.add(new GameEvent(GameEventType.COIN_FLIP, Map.of("result", heads ? "HEADS" : "TAILS")));
-            if (heads) {
-                if (text.contains("Paralyzed") || text.contains("Paralizado")) {
-                    statusEffectManager.applyStatus(defender, StatusCondition.PARALYZED);
-                    events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                        Map.of("pokemon", defender.getName(), "condition", "PARALYZED")));
-                } else if (text.contains("Asleep") || text.contains("Dormido")) {
-                    statusEffectManager.applyStatus(defender, StatusCondition.ASLEEP);
-                    events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                        Map.of("pokemon", defender.getName(), "condition", "ASLEEP")));
-                } else if (text.contains("Confused") || text.contains("Confundido")) {
-                    statusEffectManager.applyStatus(defender, StatusCondition.CONFUSED);
-                    events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                        Map.of("pokemon", defender.getName(), "condition", "CONFUSED")));
-                } else if (text.contains("Burned") || text.contains("Quemado")) {
-                    statusEffectManager.applyStatus(defender, StatusCondition.BURNED);
-                    events.add(new GameEvent(GameEventType.STATUS_APPLIED,
-                        Map.of("pokemon", defender.getName(), "condition", "BURNED")));
-                }
-            }
-        }
-    }
-
     private ActionResult buildResult(GameStateSnapshot state, List<GameEvent> events, VictoryResult victory) {
         if (victory.isGameOver()) {
             events.add(new GameEvent(GameEventType.GAME_OVER,
@@ -434,13 +339,4 @@ public class GameEngine {
         }
     }
 
-    private int extractDiscardCount(String text) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("Discard (\\d+)").matcher(text);
-        return m.find() ? Integer.parseInt(m.group(1)) : 1;
-    }
-
-    private int extractNumberFromText(String text) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(text);
-        return m.find() ? Integer.parseInt(m.group(1)) : 0;
-    }
 }
