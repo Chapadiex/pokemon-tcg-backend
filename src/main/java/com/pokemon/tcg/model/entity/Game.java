@@ -35,6 +35,9 @@ public class Game {
     @JoinColumn(name = "player2_deck_id")
     private Deck player2Deck;
 
+    @Column(name = "game_name", length = 40)
+    private String gameName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private GameStatus status = GameStatus.WAITING;

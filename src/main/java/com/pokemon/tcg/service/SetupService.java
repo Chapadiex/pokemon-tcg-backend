@@ -16,6 +16,7 @@ import com.pokemon.tcg.model.game.CardData;
 import com.pokemon.tcg.model.game.PokemonInPlay;
 import com.pokemon.tcg.model.game.SetupPhaseState;
 import com.pokemon.tcg.repository.GameRepository;
+import com.pokemon.tcg.util.CardSelectionUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -77,8 +79,8 @@ public class SetupService {
         Game game = findGame(gameId);
         ensureSetupReady(game);
 
-        List<CardData> deck1 = new ArrayList<>(cardService.preloadDeck(expandDeckIds(game.getPlayer1Deck())));
-        List<CardData> deck2 = new ArrayList<>(cardService.preloadDeck(expandDeckIds(game.getPlayer2Deck())));
+        List<CardData> deck1 = new ArrayList<>(buildFullDeck(game.getPlayer1Deck()));
+        List<CardData> deck2 = new ArrayList<>(buildFullDeck(game.getPlayer2Deck()));
         Collections.shuffle(deck1, random);
         Collections.shuffle(deck2, random);
 
@@ -159,7 +161,10 @@ public class SetupService {
             throw new InvalidMoveException(validation.getErrorMessage());
         }
 
-        hand.removeIf(candidate -> candidate.getId().equals(cardId));
+        boolean removed = CardSelectionUtil.removeFirstById(hand, cardId);
+        if (!removed) {
+            throw new InvalidMoveException("No se pudo remover la carta seleccionada durante setup");
+        }
         PokemonInPlay pokemon = PokemonInPlay.fromCard(card);
         if ("ACTIVE".equals(position)) {
             if (isPlayer1) {
@@ -283,6 +288,32 @@ public class SetupService {
     private Game findGame(Long gameId) {
         return gameRepository.findById(gameId)
             .orElseThrow(() -> new IllegalArgumentException("Juego no encontrado: " + gameId));
+    }
+
+    /**
+     * Builds the full 60-card deck properly: fetches unique cards in batch (efficient),
+     * then replicates each card according to its quantity.
+     * Fixes the bug where preloadDeck().distinct() was deduplicating and shrinking the deck.
+     */
+    private List<CardData> buildFullDeck(Deck deck) {
+        List<CardInDeck> deckCards = deck.getCards();
+        List<String> uniqueIds = deckCards.stream()
+            .map(CardInDeck::getCardId)
+            .distinct()
+            .collect(Collectors.toList());
+
+        Map<String, CardData> cardMap = cardService.getCardsByIdsBatch(uniqueIds);
+
+        List<CardData> fullDeck = new ArrayList<>();
+        for (CardInDeck cid : deckCards) {
+            CardData card = cardMap.get(cid.getCardId());
+            if (card != null) {
+                for (int i = 0; i < cid.getQuantity(); i++) {
+                    fullDeck.add(card);
+                }
+            }
+        }
+        return fullDeck;
     }
 
     private List<String> expandDeckIds(Deck deck) {

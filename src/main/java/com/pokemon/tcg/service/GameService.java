@@ -40,7 +40,7 @@ public class GameService {
         this.messaging = messaging;
     }
 
-    public GameDTO createGame(Long playerId, Long deckId) {
+    public GameDTO createGame(Long playerId, Long deckId, String gameName) {
         Player player = playerRepository.findById(playerId)
             .orElseThrow(() -> new GameNotFoundException("Jugador no encontrado: " + playerId));
         Deck deck = deckRepository.findById(deckId)
@@ -53,10 +53,24 @@ public class GameService {
         Game game = Game.builder()
             .player1(player)
             .player1Deck(deck)
+            .gameName(normalizeGameName(gameName))
             .status(GameStatus.WAITING)
             .build();
 
         return GameDTO.from(gameRepository.save(game));
+    }
+
+    private String normalizeGameName(String gameName) {
+        if (gameName == null) {
+            return null;
+        }
+
+        String normalized = gameName.trim();
+        if (normalized.isBlank()) {
+            return null;
+        }
+
+        return normalized.length() > 40 ? normalized.substring(0, 40) : normalized;
     }
 
     public GameDTO joinGame(Long gameId, Long playerId, Long deckId) {

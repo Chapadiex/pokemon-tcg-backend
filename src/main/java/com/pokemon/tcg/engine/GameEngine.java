@@ -12,6 +12,7 @@ import com.pokemon.tcg.model.game.AttackData;
 import com.pokemon.tcg.model.game.CardData;
 import com.pokemon.tcg.model.game.EnergyAttached;
 import com.pokemon.tcg.model.game.PokemonInPlay;
+import com.pokemon.tcg.util.CardSelectionUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -69,13 +70,18 @@ public class GameEngine {
     // ── Colocar Pokémon Básico desde la mano ──────────────────────────────
 
     public ActionResult placePokemon(GameStateSnapshot state, String cardId, String position) {
-        CardData card = findInHand(state.getCurrentPlayerHand(), cardId);
+        return placePokemon(state, cardId, position, null);
+    }
+
+    public ActionResult placePokemon(GameStateSnapshot state, String cardId, String position, Integer handIndex) {
+        CardData card = findInHand(state.getCurrentPlayerHand(), cardId, handIndex);
         if (card == null) return ActionResult.fail("Carta no encontrada en la mano: " + cardId, state);
 
         ValidationResult v = ruleValidator.validatePlacePokemon(card, position, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
 
-        state.getCurrentPlayerHand().removeIf(c -> c.getId().equals(cardId));
+        boolean removed = CardSelectionUtil.removeFromHand(state.getCurrentPlayerHand(), cardId, handIndex);
+        if (!removed) return ActionResult.fail("No se pudo remover la carta seleccionada de la mano", state);
         PokemonInPlay pokemon = PokemonInPlay.fromCard(card);
 
         if ("ACTIVE".equals(position)) {
@@ -93,7 +99,11 @@ public class GameEngine {
     // ── Unir Energía ──────────────────────────────────────────────────────
 
     public ActionResult attachEnergy(GameStateSnapshot state, String cardId, String targetPosition) {
-        CardData energyCard = findInHand(state.getCurrentPlayerHand(), cardId);
+        return attachEnergy(state, cardId, targetPosition, null);
+    }
+
+    public ActionResult attachEnergy(GameStateSnapshot state, String cardId, String targetPosition, Integer handIndex) {
+        CardData energyCard = findInHand(state.getCurrentPlayerHand(), cardId, handIndex);
         if (energyCard == null) return ActionResult.fail("Carta de Energía no encontrada en la mano", state);
 
         PokemonInPlay target = findPokemonAtPosition(state, targetPosition);
@@ -102,7 +112,8 @@ public class GameEngine {
         ValidationResult v = ruleValidator.validateAttachEnergy(energyCard, target, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
 
-        state.getCurrentPlayerHand().removeIf(c -> c.getId().equals(cardId));
+        boolean removed = CardSelectionUtil.removeFromHand(state.getCurrentPlayerHand(), cardId, handIndex);
+        if (!removed) return ActionResult.fail("No se pudo remover la energia seleccionada de la mano", state);
         EnergyAttached energy = EnergyAttached.builder()
             .cardId(cardId)
             .type(energyCard.getPrimaryType())
@@ -120,7 +131,11 @@ public class GameEngine {
     // ── Evolucionar Pokémon ───────────────────────────────────────────────
 
     public ActionResult evolve(GameStateSnapshot state, String evolutionCardId, String targetPosition) {
-        CardData evolutionCard = findInHand(state.getCurrentPlayerHand(), evolutionCardId);
+        return evolve(state, evolutionCardId, targetPosition, null);
+    }
+
+    public ActionResult evolve(GameStateSnapshot state, String evolutionCardId, String targetPosition, Integer handIndex) {
+        CardData evolutionCard = findInHand(state.getCurrentPlayerHand(), evolutionCardId, handIndex);
         if (evolutionCard == null) return ActionResult.fail("Carta de evolución no encontrada en la mano", state);
 
         PokemonInPlay target = findPokemonAtPosition(state, targetPosition);
@@ -129,7 +144,8 @@ public class GameEngine {
         ValidationResult v = ruleValidator.validateEvolution(target, evolutionCard, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
 
-        state.getCurrentPlayerHand().removeIf(c -> c.getId().equals(evolutionCardId));
+        boolean removed = CardSelectionUtil.removeFromHand(state.getCurrentPlayerHand(), evolutionCardId, handIndex);
+        if (!removed) return ActionResult.fail("No se pudo remover la carta de evolucion seleccionada de la mano", state);
         PokemonInPlay evolved = PokemonInPlay.evolve(target, evolutionCard);
         replacePokemonAtPosition(state, targetPosition, evolved);
 
@@ -308,8 +324,8 @@ public class GameEngine {
             .build();
     }
 
-    private CardData findInHand(List<CardData> hand, String cardId) {
-        return hand.stream().filter(c -> c.getId().equals(cardId)).findFirst().orElse(null);
+    private CardData findInHand(List<CardData> hand, String cardId, Integer handIndex) {
+        return CardSelectionUtil.findInHand(hand, cardId, handIndex);
     }
 
     private PokemonInPlay findPokemonAtPosition(GameStateSnapshot state, String position) {

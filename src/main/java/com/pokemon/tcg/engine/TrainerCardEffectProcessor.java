@@ -8,6 +8,7 @@ import com.pokemon.tcg.engine.model.ValidationResult;
 import com.pokemon.tcg.exception.InvalidMoveException;
 import com.pokemon.tcg.model.game.CardData;
 import com.pokemon.tcg.model.game.PokemonInPlay;
+import com.pokemon.tcg.util.CardSelectionUtil;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -24,11 +25,16 @@ public class TrainerCardEffectProcessor {
     }
 
     public ActionResult process(CardData card, GameStateSnapshot state, Map<String, Object> data) {
+        return process(card, state, data, null);
+    }
+
+    public ActionResult process(CardData card, GameStateSnapshot state, Map<String, Object> data, Integer handIndex) {
         ValidationResult v = ruleValidator.validatePlayTrainer(card, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
 
         // Quitar de la mano antes de aplicar el efecto
-        state.getCurrentPlayerHand().removeIf(c -> c.getId().equals(card.getId()));
+        boolean removed = CardSelectionUtil.removeFromHand(state.getCurrentPlayerHand(), card.getId(), handIndex);
+        if (!removed) return ActionResult.fail("No se pudo remover el entrenador seleccionado de la mano", state);
 
         ActionResult result = switch (card.getName()) {
             case "Potion", "Poción"                                         -> effectPotion(card, state, data);
@@ -100,7 +106,7 @@ public class TrainerCardEffectProcessor {
             .findFirst()
             .orElseThrow(() -> new InvalidMoveException("Pokémon " + targetCardId + " no encontrado en el mazo"));
 
-        deck.removeIf(c -> c.getId().equals(targetCardId));
+        CardSelectionUtil.removeFirstById(deck, targetCardId);
         state.getCurrentPlayerHand().add(found);
         Collections.shuffle(deck);
         discardCard(card, state);

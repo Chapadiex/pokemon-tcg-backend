@@ -17,6 +17,7 @@ import com.pokemon.tcg.model.game.CardData;
 import com.pokemon.tcg.repository.ActionRepository;
 import com.pokemon.tcg.repository.GameRepository;
 import com.pokemon.tcg.repository.TurnRepository;
+import com.pokemon.tcg.util.CardSelectionUtil;
 import com.pokemon.tcg.util.JsonUtil;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -65,20 +66,24 @@ public class TurnService {
         }
 
         GameStateSnapshot snapshot = gameStateMapper.loadSnapshot(game);
+        Integer handIndex = CardSelectionUtil.extractHandIndex(action.getData());
 
         ActionResult result = switch (action.getType()) {
             case "DRAW_CARD"     -> gameEngine.drawCard(snapshot);
             case "PLACE_POKEMON" -> gameEngine.placePokemon(snapshot,
                 (String) action.getData().get("cardId"),
-                (String) action.getData().get("position"));
+                (String) action.getData().get("position"),
+                handIndex);
             case "ATTACH_ENERGY" -> gameEngine.attachEnergy(snapshot,
                 (String) action.getData().get("cardId"),
-                (String) action.getData().get("targetPosition"));
+                (String) action.getData().get("targetPosition"),
+                handIndex);
             case "EVOLVE"        -> gameEngine.evolve(snapshot,
                 (String) action.getData().get("evolutionCardId"),
-                (String) action.getData().get("targetPosition"));
+                (String) action.getData().get("targetPosition"),
+                handIndex);
             case "PLAY_TRAINER"  -> processTrainer(snapshot,
-                (String) action.getData().get("cardId"), action.getData());
+                (String) action.getData().get("cardId"), handIndex, action.getData());
             case "RETREAT"       -> gameEngine.retreat(snapshot,
                 castList(action.getData().get("energyIdsToDiscard")),
                 ((Number) action.getData().get("newActiveIndex")).intValue());
@@ -117,12 +122,12 @@ public class TurnService {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private ActionResult processTrainer(GameStateSnapshot snapshot, String cardId, Map<String, Object> data) {
-        CardData card = snapshot.getCurrentPlayerHand().stream()
-            .filter(c -> c.getId().equals(cardId))
-            .findFirst()
-            .orElseThrow(() -> new InvalidMoveException("Carta Entrenador no encontrada en mano: " + cardId));
-        return trainerProcessor.process(card, snapshot, data);
+    private ActionResult processTrainer(GameStateSnapshot snapshot, String cardId, Integer handIndex, Map<String, Object> data) {
+        CardData card = CardSelectionUtil.findInHand(snapshot.getCurrentPlayerHand(), cardId, handIndex);
+        if (card == null) {
+            throw new InvalidMoveException("Carta Entrenador no encontrada en mano: " + cardId);
+        }
+        return trainerProcessor.process(card, snapshot, data, handIndex);
     }
 
     private void logAction(Game game, Long playerId, GameActionMessage action, ActionResult result) {

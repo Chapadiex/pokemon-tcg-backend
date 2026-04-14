@@ -163,6 +163,7 @@ class DomainModelsTest {
 
         Game game = Game.builder()
             .id(99L)
+            .gameName("Liga Kanto")
             .status(GameStatus.ACTIVE)
             .player1(player1)
             .player2(player2)
@@ -197,8 +198,9 @@ class DomainModelsTest {
 
         assertThat(playerDto.getUsername()).isEqualTo("ash");
         assertThat(deckDto.getCardCount()).isEqualTo(5);
-        assertThat(deckDto.getCardIds()).containsExactly("base1-4", "base1-46");
+        assertThat(deckDto.getCardIds()).containsExactly("base1-4", "base1-4", "base1-46", "base1-46", "base1-46");
         assertThat(gameDto.getStatus()).isEqualTo("ACTIVE");
+        assertThat(gameDto.getGameName()).isEqualTo("Liga Kanto");
         assertThat(gameDto.getWinnerId()).isEqualTo(1L);
         assertThat(cardDto.getImageUrl()).isEqualTo("small-url");
         assertThat(cardDto.getSetName()).isEqualTo("Base");

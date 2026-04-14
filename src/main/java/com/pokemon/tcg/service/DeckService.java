@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,7 +60,10 @@ public class DeckService {
             deck.getCards().add(cid);
         });
 
-        return DeckDTO.from(deckRepository.save(deck));
+        DeckDTO saved = DeckDTO.from(deckRepository.save(deck));
+        // Pre-warm cache so subsequent validation is instant
+        preCacheCards(cardIds);
+        return saved;
     }
 
     public DeckDTO updateDeck(Long deckId, String name, List<String> cardIds) {
@@ -80,7 +84,16 @@ public class DeckService {
             deck.setIsValid(false);
         }
 
-        return DeckDTO.from(deckRepository.save(deck));
+        DeckDTO updated = DeckDTO.from(deckRepository.save(deck));
+        // Pre-warm cache so subsequent validation is instant
+        if (cardIds != null) preCacheCards(cardIds);
+        return updated;
+    }
+
+    /** Pre-warms cache in the background so it doesn't block the save response. */
+    private void preCacheCards(List<String> cardIds) {
+        List<String> unique = cardIds.stream().distinct().collect(Collectors.toList());
+        CompletableFuture.runAsync(() -> cardService.getCardsByIdsBatch(unique));
     }
 
     public void deleteDeck(Long deckId) {
@@ -93,12 +106,19 @@ public class DeckService {
         Deck deck = deckRepository.findById(deckId)
             .orElseThrow(() -> new GameNotFoundException("Mazo no encontrado: " + deckId));
 
-        List<String> cardIds = deck.getCards().stream()
-            .flatMap(cid -> Collections.nCopies(cid.getQuantity(), cid.getCardId()).stream())
-            .collect(Collectors.toList());
+        List<CardInDeck> deckCards = deck.getCards();
 
-        List<CardData> cards = cardIds.stream()
-            .map(cardService::getCardById)
+        // Batch-fetch all unique card IDs in one query instead of N individual lookups
+        List<String> uniqueIds = deckCards.stream()
+            .map(CardInDeck::getCardId)
+            .distinct()
+            .collect(Collectors.toList());
+        Map<String, CardData> cardDataMap = cardService.getCardsByIdsBatch(uniqueIds);
+
+        // Expand to full 60-card list for validation rules
+        List<CardData> cards = deckCards.stream()
+            .flatMap(cid -> Collections.nCopies(cid.getQuantity(), cardDataMap.get(cid.getCardId())).stream())
+            .filter(java.util.Objects::nonNull)
             .collect(Collectors.toList());
 
         ValidationResult result = ruleValidator.validateDeckComposition(cards);

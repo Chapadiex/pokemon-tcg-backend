@@ -40,7 +40,8 @@ public class GameController {
     public ResponseEntity<GameDTO> create(@RequestParam Long playerId,
                                            @RequestBody Map<String, Object> body) {
         Long deckId = ((Number) body.get("deckId")).longValue();
-        GameDTO game = gameService.createGame(playerId, deckId);
+        String gameName = body.get("gameName") instanceof String ? ((String) body.get("gameName")).trim() : null;
+        GameDTO game = gameService.createGame(playerId, deckId, gameName);
         return ResponseEntity.created(URI.create("/api/games/" + game.getId())).body(game);
     }
 

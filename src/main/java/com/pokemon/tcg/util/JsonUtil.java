@@ -1,6 +1,7 @@
 package com.pokemon.tcg.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -23,7 +24,7 @@ public class JsonUtil {
 
     public <T> T fromJson(String json, Class<T> clazz) {
         try {
-            return objectMapper.readValue(json, clazz);
+            return objectMapper.readValue(unwrapIfJsonString(json), clazz);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Error deserializando JSON", e);
         }
@@ -31,10 +32,31 @@ public class JsonUtil {
 
     public <T> List<T> fromJsonList(String json, Class<T> clazz) {
         try {
-            return objectMapper.readValue(json,
+            return objectMapper.readValue(unwrapIfJsonString(json),
                 objectMapper.getTypeFactory().constructCollectionType(List.class, clazz));
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Error deserializando JSON list", e);
         }
+    }
+
+    /**
+     * Compatibilidad con registros legacy donde una columna JSONB quedo
+     * doble-serializada (ej: "\"[{...}]\"").
+     */
+    private String unwrapIfJsonString(String json) throws JsonProcessingException {
+        if (json == null) {
+            return null;
+        }
+        String trimmed = json.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            String unwrapped = objectMapper.readValue(trimmed, new TypeReference<String>() {});
+            if (unwrapped != null && !unwrapped.isBlank()) {
+                return unwrapped.trim();
+            }
+        }
+        return trimmed;
     }
 }

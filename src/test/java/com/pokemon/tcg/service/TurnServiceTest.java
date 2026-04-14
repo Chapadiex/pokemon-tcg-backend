@@ -142,7 +142,7 @@ class TurnServiceTest {
             .id(1L).game(game).turnNumber(1).playerId(PLAYER1).build();
         when(gameRepository.findById(GAME_ID)).thenReturn(Optional.of(game));
         when(gameStateMapper.loadSnapshot(game)).thenReturn(snapshot);
-        when(gameEngine.placePokemon(snapshot, "card-1", "BENCH")).thenReturn(engineResult);
+        when(gameEngine.placePokemon(snapshot, "card-1", "BENCH", null)).thenReturn(engineResult);
         when(turnRepository.findByGameIdOrderByTurnNumberAsc(GAME_ID)).thenReturn(List.of());
         when(turnRepository.save(any())).thenReturn(savedTurn);
         when(jsonUtil.toJson(any())).thenReturn("{}");
@@ -151,7 +151,7 @@ class TurnServiceTest {
         msg.setData(Map.of("cardId", "card-1", "position", "BENCH"));
         turnService.executeAction(GAME_ID, PLAYER1, msg);
 
-        verify(gameEngine).placePokemon(snapshot, "card-1", "BENCH");
+        verify(gameEngine).placePokemon(snapshot, "card-1", "BENCH", null);
     }
 
     // ── Acción inválida ───────────────────────────────────────────────────

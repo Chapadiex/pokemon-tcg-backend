@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS games (
     player2_id              BIGINT                REFERENCES players(id),
     player1_deck_id         BIGINT       NOT NULL REFERENCES decks(id),
     player2_deck_id         BIGINT                REFERENCES decks(id),
+    game_name               VARCHAR(40),
     status                  game_status  DEFAULT 'WAITING',
     current_turn_player_id  BIGINT,
     turn_number             INT          DEFAULT 0,

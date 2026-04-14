@@ -8,10 +8,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -50,6 +56,74 @@ public class CardService {
             .distinct()
             .map(this::getCardById)
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Fetches all card IDs in a single batch cache query.
+     * Any IDs not found in cache are fetched from the external API and cached.
+     * Much faster than calling getCardById() N times.
+     */
+    public Map<String, CardData> getCardsByIdsBatch(List<String> cardIds) {
+        if (cardIds.isEmpty()) return Collections.emptyMap();
+
+        List<String> unique = cardIds.stream().distinct().collect(Collectors.toList());
+        Map<String, CardData> result = new HashMap<>(batchFindInCache(unique));
+
+        // Fetch any missing cards from external API in parallel
+        List<String> missing = unique.stream()
+            .filter(id -> !result.containsKey(id))
+            .collect(Collectors.toList());
+
+        if (!missing.isEmpty()) {
+            Map<String, CardData> fetched = new ConcurrentHashMap<>();
+            List<CompletableFuture<Void>> futures = missing.stream()
+                .map(id -> CompletableFuture.runAsync(() -> {
+                    try {
+                        CardData card = apiClient.fetchCard(id);
+                        saveToCache(card);
+                        fetched.put(id, card);
+                    } catch (Exception ignored) {}
+                }))
+                .collect(Collectors.toList());
+
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            result.putAll(fetched);
+        }
+
+        return result;
+    }
+
+    private Map<String, CardData> batchFindInCache(List<String> ids) {
+        if (ids.isEmpty()) return Collections.emptyMap();
+
+        String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(", "));
+        String sql = "SELECT card_id, card_data FROM cached_cards WHERE card_id IN (" + placeholders + ")";
+
+        try {
+            List<Map.Entry<String, CardData>> rows = jdbcTemplate.query(
+                sql,
+                ids.toArray(),
+                (rs, i) -> {
+                    try {
+                        String id  = rs.getString("card_id");
+                        CardData cd = objectMapper.readValue(rs.getString("card_data"), CardData.class);
+                        return Map.entry(id, cd);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                }
+            );
+            return rows.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        } catch (DataAccessException ex) {
+            // Fallback: fetch one by one if batch query fails
+            Map<String, CardData> fallback = new HashMap<>();
+            for (String id : ids) {
+                findInCache(id).ifPresent(c -> fallback.put(id, c));
+            }
+            return fallback;
+        }
     }
 
     private Optional<CardData> findInCache(String cardId) {
