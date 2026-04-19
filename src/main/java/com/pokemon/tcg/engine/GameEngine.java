@@ -1,10 +1,11 @@
-package com.pokemon.tcg.engine;
+﻿package com.pokemon.tcg.engine;
 
 import com.pokemon.tcg.engine.model.ActionResult;
 import com.pokemon.tcg.engine.model.BetweenTurnsResult;
 import com.pokemon.tcg.engine.model.GameEvent;
 import com.pokemon.tcg.engine.model.GameEventType;
 import com.pokemon.tcg.engine.model.GameStateSnapshot;
+import com.pokemon.tcg.engine.model.KOReplacementResult;
 import com.pokemon.tcg.engine.model.KnockoutResult;
 import com.pokemon.tcg.engine.model.ValidationResult;
 import com.pokemon.tcg.engine.model.VictoryResult;
@@ -31,31 +32,42 @@ public class GameEngine {
     private final VictoryConditionChecker victoryConditionChecker;
     private final TurnManager turnManager;
     private final AttackEffectParser attackEffectParser;
+    private final KnockoutReplacementHandler knockoutReplacementHandler;
     private final Random random = new Random();
 
-    /** Constructor para Spring (inyección de dependencias). */
+    /** Constructor para Spring (inyecciÃ³n de dependencias). */
     @Autowired
     public GameEngine(RuleValidator ruleValidator, DamageCalculator damageCalculator,
                       StatusEffectManager statusEffectManager,
                       VictoryConditionChecker victoryConditionChecker,
-                      AttackEffectParser attackEffectParser) {
+                      AttackEffectParser attackEffectParser,
+                      KnockoutReplacementHandler knockoutReplacementHandler) {
         this.ruleValidator = ruleValidator;
         this.damageCalculator = damageCalculator;
         this.statusEffectManager = statusEffectManager;
         this.victoryConditionChecker = victoryConditionChecker;
         this.attackEffectParser = attackEffectParser;
+        this.knockoutReplacementHandler = knockoutReplacementHandler;
         this.turnManager = new TurnManager(ruleValidator, damageCalculator,
                 statusEffectManager, victoryConditionChecker);
+    }
+
+    public GameEngine(RuleValidator ruleValidator, DamageCalculator damageCalculator,
+                      StatusEffectManager statusEffectManager,
+                      VictoryConditionChecker victoryConditionChecker,
+                      AttackEffectParser attackEffectParser) {
+        this(ruleValidator, damageCalculator, statusEffectManager, victoryConditionChecker, attackEffectParser, null);
     }
 
     /** Constructor sin argumentos para tests unitarios. */
     public GameEngine() {
         this(new RuleValidator(), new DamageCalculator(),
                 new StatusEffectManager(), new VictoryConditionChecker(),
-                new AttackEffectParser(new StatusEffectManager()));
+                new AttackEffectParser(new StatusEffectManager()),
+                null);
     }
 
-    // ── Robar carta (inicio de turno) ─────────────────────────────────────
+    // â”€â”€ Robar carta (inicio de turno) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult drawCard(GameStateSnapshot state) {
         return turnManager.startTurn(state, () -> random.nextBoolean());
@@ -67,7 +79,7 @@ public class GameEngine {
         return turnManager.startTurn(state, coinFlipper);
     }
 
-    // ── Colocar Pokémon Básico desde la mano ──────────────────────────────
+    // â”€â”€ Colocar PokÃ©mon BÃ¡sico desde la mano â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult placePokemon(GameStateSnapshot state, String cardId, String position) {
         return placePokemon(state, cardId, position, null);
@@ -96,7 +108,7 @@ public class GameEngine {
             .build();
     }
 
-    // ── Unir Energía ──────────────────────────────────────────────────────
+    // â”€â”€ Unir EnergÃ­a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult attachEnergy(GameStateSnapshot state, String cardId, String targetPosition) {
         return attachEnergy(state, cardId, targetPosition, null);
@@ -104,10 +116,10 @@ public class GameEngine {
 
     public ActionResult attachEnergy(GameStateSnapshot state, String cardId, String targetPosition, Integer handIndex) {
         CardData energyCard = findInHand(state.getCurrentPlayerHand(), cardId, handIndex);
-        if (energyCard == null) return ActionResult.fail("Carta de Energía no encontrada en la mano", state);
+        if (energyCard == null) return ActionResult.fail("Carta de EnergÃ­a no encontrada en la mano", state);
 
         PokemonInPlay target = findPokemonAtPosition(state, targetPosition);
-        if (target == null) return ActionResult.fail("Pokémon objetivo no encontrado: " + targetPosition, state);
+        if (target == null) return ActionResult.fail("PokÃ©mon objetivo no encontrado: " + targetPosition, state);
 
         ValidationResult v = ruleValidator.validateAttachEnergy(energyCard, target, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
@@ -128,7 +140,7 @@ public class GameEngine {
             .build();
     }
 
-    // ── Evolucionar Pokémon ───────────────────────────────────────────────
+    // â”€â”€ Evolucionar PokÃ©mon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult evolve(GameStateSnapshot state, String evolutionCardId, String targetPosition) {
         return evolve(state, evolutionCardId, targetPosition, null);
@@ -136,10 +148,10 @@ public class GameEngine {
 
     public ActionResult evolve(GameStateSnapshot state, String evolutionCardId, String targetPosition, Integer handIndex) {
         CardData evolutionCard = findInHand(state.getCurrentPlayerHand(), evolutionCardId, handIndex);
-        if (evolutionCard == null) return ActionResult.fail("Carta de evolución no encontrada en la mano", state);
+        if (evolutionCard == null) return ActionResult.fail("Carta de evoluciÃ³n no encontrada en la mano", state);
 
         PokemonInPlay target = findPokemonAtPosition(state, targetPosition);
-        if (target == null) return ActionResult.fail("Pokémon objetivo no encontrado: " + targetPosition, state);
+        if (target == null) return ActionResult.fail("PokÃ©mon objetivo no encontrado: " + targetPosition, state);
 
         ValidationResult v = ruleValidator.validateEvolution(target, evolutionCard, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
@@ -155,7 +167,7 @@ public class GameEngine {
             .build();
     }
 
-    // ── Atacar ────────────────────────────────────────────────────────────
+    // â”€â”€ Atacar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /** Usar desde TurnService (coinFlipper interno). */
     public ActionResult attack(GameStateSnapshot state, int attackIndex) {
@@ -179,7 +191,7 @@ public class GameEngine {
         List<GameEvent> events = new ArrayList<>();
         AttackData attack = attacker.getAttacks().get(attackIndex);
 
-        // Verificar Confusión — puede cancelar el ataque
+        // Verificar ConfusiÃ³n â€” puede cancelar el ataque
         if (statusEffectManager.checkConfusionCancelsAttack(attacker, coinFlipper)) {
             events.add(new GameEvent(GameEventType.ATTACK_EXECUTED,
                 Map.of("attack", attack.getName(), "confused", true, "selfDamage", 30)));
@@ -187,7 +199,7 @@ public class GameEngine {
             return buildResult(state, events, v2);
         }
 
-        // Calcular y aplicar daño
+        // Calcular y aplicar daÃ±o
         var damage = damageCalculator.calculateDamage(attacker, defender, attack, state);
         defender.setDamageCounters(
             (defender.getDamageCounters() != null ? defender.getDamageCounters() : 0)
@@ -202,7 +214,7 @@ public class GameEngine {
             "target", defender.getName()
         )));
 
-        // Efectos adicionales del ataque (condiciones especiales, descarte de energías)
+        // Efectos adicionales del ataque (condiciones especiales, descarte de energÃ­as)
         attackEffectParser.apply(attack, attacker, defender, state, coinFlipper, events);
 
         // Verificar KO y victoria
@@ -215,12 +227,20 @@ public class GameEngine {
             turnManager.switchTurn(state);
             events.add(new GameEvent(GameEventType.TURN_ENDED,
                 Map.of("nextTurnPlayerId", state.getCurrentTurnPlayerId())));
+
+            // Ejecutar startTurn automÃ¡ticamente para el nuevo jugador (regla XY1)
+            ActionResult startResult = turnManager.startTurn(state, () -> random.nextBoolean());
+            events.addAll(startResult.getEvents());
+            if (startResult.isGameOver()) {
+                return buildResult(state, events,
+                    VictoryResult.win(startResult.getWinnerId(), startResult.getVictoryCondition()));
+            }
         }
 
         return buildResult(state, events, victory);
     }
 
-    // ── Retirar Pokémon ───────────────────────────────────────────────────
+    // â”€â”€ Retirar PokÃ©mon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult retreat(GameStateSnapshot state, List<String> energyIdsToDiscard, int newActiveIndex) {
         PokemonInPlay active = state.getCurrentPlayerActivePokemon();
@@ -231,13 +251,13 @@ public class GameEngine {
         ValidationResult v = ruleValidator.validateRetreat(active, toDiscard, state);
         if (!v.isValid()) return ActionResult.fail(v.getErrorMessage(), state);
 
-        // Descartar energías
+        // Descartar energÃ­as
         active.getAttachedEnergies().removeAll(toDiscard);
         toDiscard.forEach(e -> state.getCurrentPlayerDiscard().add(
             CardData.builder().id(e.getCardId()).name(e.getName()).build()
         ));
 
-        // Limpiar condición de rotación al retirarse (POISONED/BURNED se mantienen)
+        // Limpiar condiciÃ³n de rotaciÃ³n al retirarse (POISONED/BURNED se mantienen)
         active.setRotationCondition(null);
         active.setActiveEffects(new ArrayList<>());
         state.getCurrentPlayerBench().add(active);
@@ -253,7 +273,7 @@ public class GameEngine {
             .build();
     }
 
-    // ── Fin de turno explícito (sin atacar) ───────────────────────────────
+    // â”€â”€ Fin de turno explÃ­cito (sin atacar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public ActionResult endTurn(GameStateSnapshot state) {
         List<GameEvent> events = new ArrayList<>();
@@ -267,11 +287,19 @@ public class GameEngine {
         events.add(new GameEvent(GameEventType.TURN_ENDED,
             Map.of("nextTurnPlayerId", state.getCurrentTurnPlayerId())));
 
+        // Ejecutar startTurn automÃ¡ticamente para el nuevo jugador (regla XY1)
+        ActionResult startResult = turnManager.startTurn(state, () -> random.nextBoolean());
+        events.addAll(startResult.getEvents());
+        if (startResult.isGameOver()) {
+            return buildResult(state, events,
+                VictoryResult.win(startResult.getWinnerId(), startResult.getVictoryCondition()));
+        }
+
         return ActionResult.builder().success(true).updatedState(state).gameOver(false)
             .events(events).build();
     }
 
-    // ── Helpers privados ──────────────────────────────────────────────────
+    // â”€â”€ Helpers privados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private void runBetweenTurns(GameStateSnapshot state, List<GameEvent> events) {
         BetweenTurnsResult result = statusEffectManager.processBetweenTurns(
@@ -298,16 +326,40 @@ public class GameEngine {
         if (pokemon == null || !pokemon.isKnockedOut()) return;
         KnockoutResult ko = turnManager.processKnockout(pokemon, isP1, state);
         events.addAll(ko.getEvents());
-
-        // Promover automáticamente el primer Pokémon de banca si el Activo cayó
-        if (isP1 && state.getP1ActivePokemon() != null && state.getP1ActivePokemon().isKnockedOut()) {
-            state.setP1ActivePokemon(state.getP1Bench().isEmpty() ? null : state.getP1Bench().remove(0));
-        }
-        if (!isP1 && state.getP2ActivePokemon() != null && state.getP2ActivePokemon().isKnockedOut()) {
-            state.setP2ActivePokemon(state.getP2Bench().isEmpty() ? null : state.getP2Bench().remove(0));
-        }
+        handleReplacementIfActiveKnockedOut(isP1, state, events);
     }
 
+    private void handleReplacementIfActiveKnockedOut(boolean isP1, GameStateSnapshot state, List<GameEvent> events) {
+        boolean activoP1Noqueado = isP1 && state.getP1ActivePokemon() != null && state.getP1ActivePokemon().isKnockedOut();
+        boolean activoP2Noqueado = !isP1 && state.getP2ActivePokemon() != null && state.getP2ActivePokemon().isKnockedOut();
+        if (!activoP1Noqueado && !activoP2Noqueado) {
+            return;
+        }
+
+        if (knockoutReplacementHandler == null) {
+            if (isP1) {
+                state.setP1ActivePokemon(state.getP1Bench().isEmpty() ? null : state.getP1Bench().remove(0));
+            } else {
+                state.setP2ActivePokemon(state.getP2Bench().isEmpty() ? null : state.getP2Bench().remove(0));
+            }
+            return;
+        }
+
+        if (isP1) {
+            state.setP1ActivePokemon(null);
+        } else {
+            state.setP2ActivePokemon(null);
+        }
+
+        KOReplacementResult replacement = knockoutReplacementHandler.handleKnockoutReplacement(state, isP1, state.getGameId());
+        if (replacement.isWaitingForPlayer()) {
+            events.add(new GameEvent(GameEventType.CHOOSE_REPLACEMENT, Map.of(
+                "ownerId", replacement.getOwnerId(),
+                "bench", replacement.getBenchOptions(),
+                "gameId", state.getGameId()
+            )));
+        }
+    }
     private ActionResult buildResult(GameStateSnapshot state, List<GameEvent> events, VictoryResult victory) {
         if (victory.isGameOver()) {
             events.add(new GameEvent(GameEventType.GAME_OVER,

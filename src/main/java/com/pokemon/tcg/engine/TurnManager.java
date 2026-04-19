@@ -31,27 +31,38 @@ public class TurnManager {
 
     public ActionResult startTurn(GameStateSnapshot state, CoinFlipper coinFlipper) {
         List<GameEvent> events = new ArrayList<>();
-        boolean isFirstTurnOfGame = Boolean.TRUE.equals(state.getIsFirstTurn()) && Integer.valueOf(0).equals(state.getTurnNumber());
 
-        if (!isFirstTurnOfGame) {
-            VictoryResult deckOut = victoryChecker.checkDeckOut(state, state.getCurrentTurnPlayerId());
-            if (deckOut.isGameOver()) {
-                return ActionResult.builder()
-                    .success(true)
-                    .gameOver(true)
-                    .winnerId(deckOut.getWinnerId())
-                    .victoryCondition(deckOut.getCondition())
-                    .events(events)
-                    .updatedState(state)
-                    .build();
-            }
-
-            List<CardData> deck = state.getCurrentPlayerDeck();
-            List<CardData> hand = state.getCurrentPlayerHand();
-            CardData drawn = deck.remove(0);
-            hand.add(drawn);
-            events.add(new GameEvent(GameEventType.CARD_DRAWN, Map.of("cardId", drawn.getId())));
+        // Regla XY1: el jugador que inicia la partida no roba carta en su primer turno
+        if (Boolean.TRUE.equals(state.getIsFirstTurn())) {
+            // Marcar que el primer turno ya fue procesado
+            state.setIsFirstTurn(false);
+            return ActionResult.builder()
+                .success(true)
+                .gameOver(false)
+                .events(events)
+                .updatedState(state)
+                .build();
         }
+
+        // Verificar deck vacío antes de robar (el jugador sin cartas pierde)
+        VictoryResult deckOut = victoryChecker.checkDeckOut(state, state.getCurrentTurnPlayerId());
+        if (deckOut.isGameOver()) {
+            return ActionResult.builder()
+                .success(true)
+                .gameOver(true)
+                .winnerId(deckOut.getWinnerId())
+                .victoryCondition(deckOut.getCondition())
+                .events(events)
+                .updatedState(state)
+                .build();
+        }
+
+        // Robar 1 carta del mazo y agregarla a la mano
+        List<CardData> deck = state.getCurrentPlayerDeck();
+        List<CardData> hand = state.getCurrentPlayerHand();
+        CardData drawn = deck.remove(0);
+        hand.add(drawn);
+        events.add(new GameEvent(GameEventType.CARD_DRAWN, Map.of("cardId", drawn.getId())));
 
         return ActionResult.builder()
             .success(true)

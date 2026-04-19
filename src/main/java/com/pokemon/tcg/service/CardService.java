@@ -172,6 +172,37 @@ public class CardService {
         return apiClient.fetchSets();
     }
 
+    // Inserta todas las cartas en cached_cards (idempotente — ON CONFLICT DO NOTHING)
+    public void bulkCacheCards(List<CardData> cards) {
+        cards.forEach(this::saveToCache);
+    }
+
+    // Cuenta cartas en cache para un setId dado (usado por SetDataLoader para idempotencia)
+    public long countCachedCardsBySetId(String setId) {
+        try {
+            Long count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cached_cards WHERE card_data->'set'->>'id' = ?",
+                Long.class, setId);
+            return count != null ? count : 0L;
+        } catch (DataAccessException ex) {
+            // Fallback H2: escanear en Java (card_data->'set' no soportado en H2 dev)
+            try {
+                return jdbcTemplate.query(
+                    "SELECT card_data FROM cached_cards",
+                    (rs, i) -> {
+                        try { return objectMapper.readValue(rs.getString(1), CardData.class); }
+                        catch (Exception e) { return null; }
+                    })
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .filter(c -> c.getSet() != null && setId.equals(c.getSet().getId()))
+                    .count();
+            } catch (DataAccessException inner) {
+                return 0L;
+            }
+        }
+    }
+
     private List<CardData> searchInCache(String query) {
         try {
             return jdbcTemplate.query(

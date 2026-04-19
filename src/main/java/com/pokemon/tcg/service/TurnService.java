@@ -3,6 +3,8 @@ package com.pokemon.tcg.service;
 import com.pokemon.tcg.engine.GameEngine;
 import com.pokemon.tcg.engine.TrainerCardEffectProcessor;
 import com.pokemon.tcg.engine.model.ActionResult;
+import com.pokemon.tcg.engine.model.GameEvent;
+import com.pokemon.tcg.engine.model.GameEventType;
 import com.pokemon.tcg.engine.model.GameStateSnapshot;
 import com.pokemon.tcg.exception.GameNotFoundException;
 import com.pokemon.tcg.exception.InvalidMoveException;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -167,31 +170,60 @@ public class TurnService {
         GameStateSnapshot snapshot = result.getUpdatedState();
         String type = result.isGameOver() ? "GAME_OVER" : "STATE_UPDATE";
 
+        List<GameEvent> eventosBase = result.getEvents() != null ? result.getEvents() : List.of();
+
         // Enviar vista personalizada a cada jugador (mano del oponente oculta)
         if (game.getPlayer1() != null) {
+            Long playerId = game.getPlayer1().getId();
             GameStateViewDTO viewP1 = GameStateViewDTO.projectFor(snapshot, game.getPlayer1().getId());
+            List<GameEvent> eventosP1 = filtrarEventosPorJugador(eventosBase, playerId);
             messaging.convertAndSendToUser(
-                String.valueOf(game.getPlayer1().getId()),
+                String.valueOf(playerId),
                 "/queue/game/" + gameId,
                 Map.of("type", type, "data", viewP1,
-                       "events", result.getEvents(),
+                       "events", eventosP1,
                        "gameOver", result.isGameOver(),
                        "winnerId", result.getWinnerId() != null ? result.getWinnerId() : "",
                        "victoryCondition", result.getVictoryCondition() != null
                            ? result.getVictoryCondition().name() : ""));
         }
         if (game.getPlayer2() != null) {
+            Long playerId = game.getPlayer2().getId();
             GameStateViewDTO viewP2 = GameStateViewDTO.projectFor(snapshot, game.getPlayer2().getId());
+            List<GameEvent> eventosP2 = filtrarEventosPorJugador(eventosBase, playerId);
             messaging.convertAndSendToUser(
-                String.valueOf(game.getPlayer2().getId()),
+                String.valueOf(playerId),
                 "/queue/game/" + gameId,
                 Map.of("type", type, "data", viewP2,
-                       "events", result.getEvents(),
+                       "events", eventosP2,
                        "gameOver", result.isGameOver(),
                        "winnerId", result.getWinnerId() != null ? result.getWinnerId() : "",
                        "victoryCondition", result.getVictoryCondition() != null
                            ? result.getVictoryCondition().name() : ""));
         }
+    }
+
+    private List<GameEvent> filtrarEventosPorJugador(List<GameEvent> eventos, Long playerId) {
+        if (eventos.isEmpty()) {
+            return List.of();
+        }
+        List<GameEvent> filtrados = new ArrayList<>();
+        for (GameEvent evento : eventos) {
+            if (evento == null || evento.getType() == null) {
+                continue;
+            }
+            if (evento.getType() != GameEventType.CHOOSE_REPLACEMENT) {
+                filtrados.add(evento);
+                continue;
+            }
+
+            Object ownerId = evento.getData() != null ? evento.getData().get("ownerId") : null;
+            Long ownerIdLong = ownerId instanceof Number ? ((Number) ownerId).longValue() : null;
+            if (ownerIdLong != null && ownerIdLong.equals(playerId)) {
+                filtrados.add(evento);
+            }
+        }
+        return filtrados;
     }
 
     private void broadcastError(Long gameId, Long playerId, String message) {

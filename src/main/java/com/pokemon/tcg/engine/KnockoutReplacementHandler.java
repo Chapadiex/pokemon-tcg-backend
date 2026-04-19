@@ -12,6 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -53,14 +54,7 @@ public class KnockoutReplacementHandler {
             return KOReplacementResult.autoResolved(autoChosen);
         }
 
-        messaging.convertAndSendToUser(
-            String.valueOf(ownerId),
-            "/queue/game/" + gameId,
-            Map.of("type", "CHOOSE_REPLACEMENT",
-                   "bench", bench,
-                   "gameId", gameId));
-
-        return KOReplacementResult.waitingForPlayer(ownerId);
+        return KOReplacementResult.waitingForPlayer(ownerId, new ArrayList<>(bench));
     }
 
     /**

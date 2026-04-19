@@ -33,6 +33,33 @@ class TurnManagerAndGameEngineTest {
     }
 
     @Test
+    void jugador1_no_roba_en_primer_turno_y_jugador2_roba_en_el_suyo() {
+        // Estado inicial: turno 1, isFirstTurn=true, P1 empieza
+        // P1 tiene mano vacía, P2 tiene 7 cartas (simulando mano inicial del setup)
+        // Cada mazo tiene cartas suficientes para la prueba
+        GameStateSnapshot state = stateConDosTurnos();
+
+        // startTurn del jugador 1 (primer turno de la partida): NO debe robar carta
+        ActionResult turno1 = turnManager.startTurn(state, () -> false);
+        assertThat(turno1.isSuccess()).isTrue();
+        assertThat(turno1.getEvents()).isEmpty(); // sin evento CARD_DRAWN
+        assertThat(state.getP1Hand()).hasSize(0); // P1 no robó
+        assertThat(state.getIsFirstTurn()).isFalse(); // se marcó como procesado
+
+        // Simular fin del turno de P1: resetear flags y cambiar turno
+        turnManager.resetTurnFlags(state);
+        turnManager.switchTurn(state);
+        // Ahora es turno de P2 (turno número 2)
+
+        // startTurn del jugador 2 (su primer turno, pero isFirstTurn ya es false): SÍ debe robar
+        ActionResult turno2 = turnManager.startTurn(state, () -> false);
+        assertThat(turno2.isSuccess()).isTrue();
+        assertThat(turno2.getEvents()).hasSize(1); // evento CARD_DRAWN
+        // P2 tenía 7 cartas iniciales + 1 robada = 8
+        assertThat(state.getP2Hand()).hasSize(8);
+    }
+
+    @Test
     void start_turn_detecta_deck_out() {
         GameStateSnapshot state = state();
         state.setIsFirstTurn(false);
@@ -91,6 +118,46 @@ class TurnManagerAndGameEngineTest {
         // Confusion cancels the attack but the action itself is valid (success=true)
         assertThat(result.isSuccess()).isTrue();
         assertThat(state.getP1ActivePokemon().getDamageCounters()).isEqualTo(3);
+    }
+
+    private GameStateSnapshot stateConDosTurnos() {
+        // Genera cartas de mazo suficientes para dos turnos
+        List<CardData> mazoP1 = new ArrayList<>(List.of(
+            CardData.builder().id("p1-draw-1").build(),
+            CardData.builder().id("p1-draw-2").build()
+        ));
+        List<CardData> mazoP2 = new ArrayList<>(List.of(
+            CardData.builder().id("p2-draw-1").build(),
+            CardData.builder().id("p2-draw-2").build()
+        ));
+        // Mano inicial de P2: 7 cartas (simula las robadas durante el setup)
+        List<CardData> manoP2 = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) {
+            manoP2.add(CardData.builder().id("p2-hand-" + i).build());
+        }
+
+        PokemonInPlay p1 = PokemonInPlay.builder().cardId("p1").name("Charmander").hp(60)
+            .damageCounters(0).attachedEnergies(new ArrayList<>()).attacks(new ArrayList<>())
+            .turnsSinceInPlay(0).evolvedThisTurn(false).build();
+        PokemonInPlay p2 = PokemonInPlay.builder().cardId("p2").name("Squirtle").hp(60)
+            .damageCounters(0).attachedEnergies(new ArrayList<>()).attacks(new ArrayList<>())
+            .turnsSinceInPlay(0).evolvedThisTurn(false).build();
+
+        return GameStateSnapshot.builder()
+            .player1Id(1L).player2Id(2L)
+            .currentTurnPlayerId(1L)
+            .turnNumber(1)
+            .isFirstTurn(true)
+            .status(GameStatus.ACTIVE)
+            .p1Deck(mazoP1).p1Hand(new ArrayList<>())
+            .p1Prizes(new ArrayList<>()).p1Discard(new ArrayList<>())
+            .p1ActivePokemon(p1).p1Bench(new ArrayList<>())
+            .p2Deck(mazoP2).p2Hand(manoP2)
+            .p2Prizes(new ArrayList<>()).p2Discard(new ArrayList<>())
+            .p2ActivePokemon(p2).p2Bench(new ArrayList<>())
+            .energyAttachedThisTurn(false).supporterPlayedThisTurn(false)
+            .stadiumPlayedThisTurn(false).retreatUsedThisTurn(false)
+            .build();
     }
 
     private GameStateSnapshot state() {

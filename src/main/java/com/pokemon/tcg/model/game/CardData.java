@@ -97,6 +97,27 @@ public class CardData {
     }
 
     public String getPrimaryType() {
-        return types != null && !types.isEmpty() ? types.get(0) : "Colorless";
+        if (types != null && !types.isEmpty()) {
+            return types.get(0);
+        }
+        // Extraer el tipo del nombre de la carta cuando types es null o vacío
+        // (algunas cartas de energía básica en la API no tienen el campo types)
+        if (name != null) {
+            String lower = name.toLowerCase();
+            if (lower.contains("fire") || lower.contains("fuego"))           return "Fire";
+            if (lower.contains("water") || lower.contains("agua"))           return "Water";
+            if (lower.contains("grass") || lower.contains("planta"))         return "Grass";
+            if (lower.contains("lightning") || lower.contains("electrico")
+                || lower.contains("eléctrico") || lower.contains("trueno"))  return "Lightning";
+            if (lower.contains("psychic") || lower.contains("psiquico")
+                || lower.contains("psíquico"))                               return "Psychic";
+            if (lower.contains("fighting") || lower.contains("lucha"))       return "Fighting";
+            if (lower.contains("darkness") || lower.contains("dark")
+                || lower.contains("oscuridad"))                              return "Darkness";
+            if (lower.contains("metal") || lower.contains("acero"))          return "Metal";
+            if (lower.contains("fairy") || lower.contains("hada"))           return "Fairy";
+            if (lower.contains("dragon") || lower.contains("dragón"))        return "Dragon";
+        }
+        return "Colorless";
     }
 }

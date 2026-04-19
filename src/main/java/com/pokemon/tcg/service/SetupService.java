@@ -223,7 +223,9 @@ public class SetupService {
                 broadcastMulliganNeeded(game.getId(), result);
             }
 
-            if (result.isBothReady()) {
+            boolean enColocacionInicial =
+                snapshot.getSetupState().getCurrentStep() == SetupPhaseState.SetupStep.INITIAL_PLACEMENT;
+            if (result.isBothReady() || enColocacionInicial) {
                 snapshot.getSetupState().setCurrentStep(SetupPhaseState.SetupStep.INITIAL_PLACEMENT);
                 gameStateMapper.saveSnapshot(game, snapshot);
                 broadcastSetupStep(game.getId(), SetupPhaseState.SetupStep.INITIAL_PLACEMENT.name(),
@@ -235,6 +237,9 @@ public class SetupService {
             gameStateMapper.saveSnapshot(game, snapshot);
             if (result.isP1CanDrawExtra() || result.isP2CanDrawExtra()) {
                 broadcastExtraDrawOffer(game.getId(), snapshot);
+                return;
+            }
+            if (!result.isContinueLoop()) {
                 return;
             }
         }
@@ -297,12 +302,22 @@ public class SetupService {
      */
     private List<CardData> buildFullDeck(Deck deck) {
         List<CardInDeck> deckCards = deck.getCards();
+        int totalCartasEsperadas = deckCards.stream().mapToInt(CardInDeck::getQuantity).sum();
         List<String> uniqueIds = deckCards.stream()
             .map(CardInDeck::getCardId)
             .distinct()
             .collect(Collectors.toList());
 
         Map<String, CardData> cardMap = cardService.getCardsByIdsBatch(uniqueIds);
+        List<CardData> preloaded = null;
+        if (cardMap == null || cardMap.isEmpty()) {
+            preloaded = cardService.preloadDeck(expandDeckIds(deck));
+            if (preloaded != null && preloaded.size() >= totalCartasEsperadas) {
+                return new ArrayList<>(preloaded.subList(0, totalCartasEsperadas));
+            }
+            cardMap = (preloaded == null ? List.<CardData>of() : preloaded).stream()
+                .collect(Collectors.toMap(CardData::getId, card -> card, (existing, ignored) -> existing));
+        }
 
         List<CardData> fullDeck = new ArrayList<>();
         for (CardInDeck cid : deckCards) {
